@@ -36,6 +36,7 @@ string handleCommand(vector<string>& cmd){
 
 
     if(cmd[0] == "register"){
+
         if(cmd.size() != 3){
             return "Usage: register <username> <password>";
         }
@@ -46,7 +47,11 @@ string handleCommand(vector<string>& cmd){
         }
         users[uname] = pass;
         return "Registered user " + uname + " successfully";
+
+
     }else if (cmd[0] == "login"){
+
+
         if(cmd.size() != 3){
             return "Usage: login <username> <password>";
         }
@@ -61,6 +66,8 @@ string handleCommand(vector<string>& cmd){
             logged_curr.insert(uname);
         }
         return "User " + uname + " logged in successfully\n";
+
+
     }else if(cmd[0] == "logout"){
         if(cmd.size() != 2){
             return "Usage: logout <username>";
@@ -71,11 +78,15 @@ string handleCommand(vector<string>& cmd){
         }
         logged_curr.erase(uname);
         return "User " + uname + " logged out successfully";
+
+
     }else if(cmd[0] == "create_group"){
+        
         if(cmd.size() != 2){
             return "Usage: create_group <group_id>";
         }
         return "Group " + cmd[1] + " created";
+
     }else{
         return "Unknown command: " + cmd[0];
     }
@@ -116,6 +127,7 @@ int main(){
 
     server_fd = socket(PF_INET, SOCK_STREAM, 0);
     if(server_fd < 0){
+        perror("socket failed check\n");
         return 1;
     }
 
@@ -124,52 +136,30 @@ int main(){
     addr.sin_port = htons(port);
 
     if((bind(server_fd,(struct sockaddr*)& addr, addrlen)) < 0){
+        perror("bind failed check\n");
         return 1;
     }
 
     if(listen(server_fd,5) < 0){
+        perror("listen failed check\n");
         return 1;
     }
 
     cout<<"Server is listening \n";
 
     while(true){
-        new_soc = accept(server_fd,(struct sockaddr*)&addr,(socklen_t *)&addrlen);
-        if(new_soc < 0){
-            return 1;
+        int *new_sock = new int;
+        *new_sock = accept(server_fd, (struct sockaddr *)&addr,(socklen_t*) &addrlen);
+        if (*new_sock < 0) {
+            perror("accept failed");
+            delete new_sock;
+            continue;
         }
-        cout<<"Server is connected to a new client..\n";
-        pid_t pid = fork();
 
-        if(pid == 0){
-
-            close(server_fd);
-
-            while(true){
-                char buffer[1024] = {0};
-                
-                int val = read(new_soc,buffer, sizeof buffer);
-                if(val <= 0){
-                    break;
-                }
-
-                string input(buffer);
-                auto tokens = split(input);
-                string resp = handleCommand(tokens);
-
-                send(new_soc, resp.c_str(),resp.size(),0);
-            }
-
-            close(new_soc);
-            cout<<"CLient handled successfully..\n";
-        }else if(pid > 0){
-            close(new_soc);
-            signal(SIGCHLD, [](int){ 
-                while(waitpid(-1,nullptr,WNOHANG)>0); 
-            });
-        }else{
-            return 1;
-        }
+        cout << "New client connected...\n";
+        pthread_t tid;
+        pthread_create(&tid, nullptr, clientHandler, new_sock);
+        pthread_detach(tid);
     }
 
 
