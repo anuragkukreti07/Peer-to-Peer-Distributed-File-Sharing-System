@@ -12,6 +12,9 @@ using namespace std;
 
 unordered_map<string,string> users;
 unordered_set<string> logged_curr;
+unordered_map<string, string> groupOwner;
+unordered_map<string, unordered_set<string>> groupMembers;
+unordered_map<string, unordered_set<string>> joinRequests;
 pthread_mutex_t lock1 = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -29,75 +32,156 @@ vector<string> split(string& s){
 }
 
 
-string handleCommand(vector<string>& cmd){
-    if(cmd.size() == 0){
+string handleCommand(vector<string>& cmd,string& currentUser){
+    if(cmd.size()==0){
         return "Invalid\n";
-    }
-
-
-    if(cmd[0] == "register"){
-
-        if(cmd.size() != 3){
-            return "Usage: register <username> <password>";
+    }else if(cmd[0]=="create_user" && cmd.size()==3){
+        pthread_mutex_lock(&lock1);
+        string uname=cmd[1],pass=cmd[2];
+        if(users.count(uname)){
+            pthread_mutex_unlock(&lock1);
+            return "Error: user already exists\n";
         }
-
-        string uname = cmd[1],pass = cmd[2];
-        if(users.count(uname) != 0){
-            return "Error as user already exists\n";
+        users[uname]=pass;
+        pthread_mutex_unlock(&lock1);
+        return "User "+uname+" created successfully\n";
+    }else if(cmd[0]=="login" && cmd.size()==3){
+        pthread_mutex_lock(&lock1);
+        string uname=cmd[1],pass=cmd[2];
+        if(users.count(uname)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: user does not exist\n";
         }
-        users[uname] = pass;
-        return "Registered user " + uname + " successfully";
-
-
-    }else if (cmd[0] == "login"){
-
-
-        if(cmd.size() != 3){
-            return "Usage: login <username> <password>";
+        if(users[uname]!=pass){
+            pthread_mutex_unlock(&lock1);
+            return "Error: incorrect password\n";
         }
-        string uname = cmd[1],pass= cmd[2];
-        if(users.count(uname) == 0){
-            return "User doesnt exist\n";
-        }else if(users[uname] != pass){
-            return "Incorrect pass\n";
-        }else if(logged_curr.count(uname)){
-            return "User is already logged in\n";
-        }else{
-            logged_curr.insert(uname);
+        if(logged_curr.count(uname)){
+            pthread_mutex_unlock(&lock1);
+            return "Error: user already logged in\n";
         }
-        return "User " + uname + " logged in successfully\n";
-
-
-    }else if(cmd[0] == "logout"){
-        if(cmd.size() != 2){
-            return "Usage: logout <username>";
+        logged_curr.insert(uname);
+        currentUser=uname;
+        pthread_mutex_unlock(&lock1);
+        return "User "+uname+" logged in successfully\n";
+    } else if(cmd[0]=="create_group" && cmd.size()==2){
+        if(currentUser=="") return "Error: please login first\n";
+        pthread_mutex_lock(&lock1);
+        string gid=cmd[1];
+        if(groupOwner.count(gid)){
+            pthread_mutex_unlock(&lock1);
+            return "Error: group already exists\n";
         }
-        string uname = cmd[1];
-        if(logged_curr.count(uname) == 0){
-            return "Error: user not logged in";
+        groupOwner[gid]=currentUser;
+        groupMembers[gid].insert(currentUser);
+        pthread_mutex_unlock(&lock1);
+        return "Group "+gid+" created successfully\n";
+    }else if(cmd[0]=="join_group" && cmd.size()==2){
+        if(currentUser=="") return "Error: please login first\n";
+        pthread_mutex_lock(&lock1);
+        string gid=cmd[1];
+        if(groupOwner.count(gid)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: group does not exist\n";
         }
-        logged_curr.erase(uname);
-        return "User " + uname + " logged out successfully";
-
-
-    }else if(cmd[0] == "create_group"){
-        
-        if(cmd.size() != 2){
-            return "Usage: create_group <group_id>";
+        if(groupMembers[gid].count(currentUser)){
+            pthread_mutex_unlock(&lock1);
+            return "Error: already a member\n";
         }
-        return "Group " + cmd[1] + " created";
-
+        joinRequests[gid].insert(currentUser);
+        pthread_mutex_unlock(&lock1);
+        return "Join request sent for group "+gid+"\n";
+    }else if(cmd[0]=="leave_group" && cmd.size()==2){
+        if(currentUser=="") return "Error: please login first\n";
+        pthread_mutex_lock(&lock1);
+        string gid=cmd[1];
+        if(groupOwner.count(gid)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: group does not exist\n";
+        }
+        if(groupMembers[gid].count(currentUser)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: not a member\n";
+        }
+        if(groupOwner[gid]==currentUser){
+            pthread_mutex_unlock(&lock1);
+            return "Error: owner cannot leave the group\n";
+        }
+        groupMembers[gid].erase(currentUser);
+        pthread_mutex_unlock(&lock1);
+        return "User "+currentUser+" left group "+gid+"\n";
+    }else if(cmd[0]=="list_groups" && cmd.size()==1){
+        pthread_mutex_lock(&lock1);
+        if(groupOwner.empty()){
+            pthread_mutex_unlock(&lock1);
+            return "No groups available\n";
+        }
+        string res="Groups:\n";
+        for(auto &g:groupOwner){
+            res+=g.first+"\n";
+        }
+        pthread_mutex_unlock(&lock1);
+        return res;
+    }else if(cmd[0]=="list_requests" && cmd.size()==2){
+        if(currentUser=="") return "Error: please login first\n";
+        pthread_mutex_lock(&lock1);
+        string gid=cmd[1];
+        if(groupOwner.count(gid)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: group does not exist\n";
+        }
+        if(groupOwner[gid]!=currentUser){
+            pthread_mutex_unlock(&lock1);
+            return "Error: only owner can view requests\n";
+        }
+        if(joinRequests[gid].empty()){
+            pthread_mutex_unlock(&lock1);
+            return "No pending requests\n";
+        }
+        string res="Pending requests for group "+gid+":\n";
+        for(auto &u:joinRequests[gid]){
+            res+=u+"\n";
+        }
+        pthread_mutex_unlock(&lock1);
+        return res;
+    }else if(cmd[0]=="accept_request" && cmd.size()==3){
+        if(currentUser=="") return "Error: please login first\n";
+        pthread_mutex_lock(&lock1);
+        string gid=cmd[1],uname=cmd[2];
+        if(groupOwner.count(gid)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: group does not exist\n";
+        }
+        if(groupOwner[gid]!=currentUser){
+            pthread_mutex_unlock(&lock1);
+            return "Error: only owner can accept requests\n";
+        }
+        if(joinRequests[gid].count(uname)==0){
+            pthread_mutex_unlock(&lock1);
+            return "Error: no such request\n";
+        }
+        joinRequests[gid].erase(uname);
+        groupMembers[gid].insert(uname);
+        pthread_mutex_unlock(&lock1);
+        return "User "+uname+" added to group "+gid+"\n";
+    }else if(cmd[0]=="logout" && cmd.size()==1){
+        if(currentUser=="") return "Error: no user logged in\n";
+        pthread_mutex_lock(&lock1);
+        logged_curr.erase(currentUser);
+        string uname=currentUser;
+        currentUser="";
+        pthread_mutex_unlock(&lock1);
+        return "User "+uname+" logged out successfully\n";
     }else{
-        return "Unknown command: " + cmd[0];
+        return "Unknown or invalid command\n";
     }
 }
 
-
-
 void *clientHandler(void *arg){
+
     int new_sock = *((int*)arg);
     delete (int*)arg;
-
+    string currentUser = "";
     char buffer[1024] = {0};
     while (true){
         memset(buffer, 0, sizeof(buffer));
@@ -108,7 +192,7 @@ void *clientHandler(void *arg){
 
         string input(buffer);
         auto tokens = split(input);
-        string resp = handleCommand(tokens);
+        string resp = handleCommand(tokens,currentUser);
 
         send(new_sock, resp.c_str(), resp.size(), 0);
     }

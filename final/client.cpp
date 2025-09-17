@@ -39,11 +39,12 @@ int main(){
             break;
         }
 
-        send(sock,input.c_str(),sizeof input, 0);
+        send(sock,input.c_str(), input.size(), 0);
         char buffer[1024] = {0};
         int val = read(sock,buffer,sizeof(buffer));
         cout<<"Message from server is "<<buffer<<endl;
     }
 
+    close(sock);
     return 0;
 }
